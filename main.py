@@ -3,12 +3,8 @@ from pymongo import MongoClient
 import re
 
 app = FastAPI()
-
-
-def connect_to_mongo():
-    client = MongoClient("mongodb://localhost:27017/sens-critique")
-    db = client["sens-critique"]
-    return db
+client = MongoClient("mongodb://localhost:27017/sens-critique")
+db = client["sens-critique"]
 
 
 def get_key_words(review_content: str):
@@ -21,29 +17,22 @@ def get_key_words(review_content: str):
     return [mot.lower() for mot in mot_cle]
 
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-
-@app.get("/collections") 
-async def get_collections():
-    try : 
-        db = connect_to_mongo()
-        collections = db.list_collection_names()
-        return {"collections": collections}
+def get_collection(collection_name : str):
+    try:
+        if collection_name in db.list_collection_names():
+            return db[collection_name]
+        else : 
+            return None
     except Exception as e:
         return {"erreur": str(e)}
 
-
 @app.get("/{collection_name}")
-async def get_reviews(collection_name : str, limit = 100 )  : 
+async def get_reviews(collection_name : str, limit : int = 100 )  : 
     try : 
-        db = connect_to_mongo()
-        collections = db.list_collection_names()
-        if collection_name not in collections:
+        collection = get_collection(collection_name)
+        if collection is None:
             return {"erreur": "Collection not found"}
-        curseur = db[collection_name].find().limit(limit)
+        curseur = collection.find().limit(limit)
         docs = []
         for doc in curseur : 
             if "_id" in doc:
@@ -57,16 +46,14 @@ async def get_reviews(collection_name : str, limit = 100 )  :
 @app.get("/{collection_name}/{id_review}")
 async def get_same_rating_reviews(collection_name: str, id_review: int, limit: int = 100):
     try:
-        db = connect_to_mongo()
-        collections = db.list_collection_names()
-        if collection_name not in collections:
+        collection = get_collection(collection_name)
+        if collection is None:
             return {"erreur": "Collection not found"}
-
-        col = db[collection_name]
-        review = col.find_one({"id": id_review})
+        
+        review = collection.find_one({"id": id_review})
         if not review:
             try:
-                review = col.find_one({"id": id_review})
+                review = collection.find_one({"id": id_review})
             except Exception:
                 review = None
         if not review:
@@ -74,7 +61,7 @@ async def get_same_rating_reviews(collection_name: str, id_review: int, limit: i
 
         review_rating = review.get("rating")
         stored_id = review.get("id")
-        curseur = col.find({"rating": review_rating, "id": {"$ne": stored_id}}).limit(limit)
+        curseur = collection.find({"rating": review_rating, "id": {"$ne": stored_id}}).limit(limit)
 
         result = []
         for doc in curseur:
@@ -82,23 +69,21 @@ async def get_same_rating_reviews(collection_name: str, id_review: int, limit: i
                 doc["_id"] = str(doc["_id"])
             result.append({"id": doc.get("id"), "rating": doc.get("rating")})
         return {"rating": review_rating, "count": len(result), "documents": result}
-
+    
     except Exception as e:
         return {"erreur": str(e)}
     
 @app.get("/{collection_name}/{id_review}/review")
 async def get_review_content(collection_name: str, id_review: int):
     try:
-        db = connect_to_mongo()
-        collections = db.list_collection_names()
-        if collection_name not in collections:
+        collection = get_collection(collection_name)
+        if collection is None:
             return {"erreur": "Collection not found"}
-
-        col = db[collection_name]
-        review = col.find_one({"id": id_review})
+        
+        review = collection.find_one({"id": id_review})
         if not review:
             try:
-                review = col.find_one({"id": int(id_review)})
+                review = collection.find_one({"id": id_review})
             except Exception:
                 review = None
         if not review:
@@ -108,23 +93,14 @@ async def get_review_content(collection_name: str, id_review: int):
     except Exception as e:
         return {"erreur": str(e)}
 
-
-
 @app.get("/{collection_name}/{id_review}/recommendations")
-async def get_recommendations(collection_name: str, id_review: int, limit: int = 100, min_commum = 20):
+async def get_recommendations(collection_name: str, id_review: int, limit: int = 10000, min_commum : int= 250):
     try:
-        db = connect_to_mongo()
-        collections = db.list_collection_names()
-        if collection_name not in collections:
+        collection = get_collection(collection_name)
+        if collection is None:
             return {"erreur": "Collection not found"}
 
-        col = db[collection_name]
-        review = col.find_one({"id": id_review})
-        if not review:
-            try:
-                review = col.find_one({"id": int(id_review)})
-            except Exception:
-                review = None
+        review = collection.find_one({"id": id_review})
         if not review:
             return {"erreur": "Review not found"}
 
@@ -157,7 +133,7 @@ async def get_recommendations(collection_name: str, id_review: int, limit: int =
                 {"rating": {"$in": rating_values}}
             ]
         }
-        curseur = col.find(query).limit(limit)
+        curseur = collection.find(query).limit(limit)
         result = []
         for doc in curseur:
             if "_id" in doc:
